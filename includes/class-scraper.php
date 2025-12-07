@@ -1,5 +1,8 @@
 <?php
-if (!defined('ABSPATH')) exit;
+// Prevent direct access
+if (!defined('ABSPATH')) {
+    exit;
+}
 
 class WHP_Scraper {
     
@@ -10,13 +13,11 @@ class WHP_Scraper {
     }
     
     public function scrape_source($source) {
-        global $wpdb;
-        
         $url = $source['url'];
         $source_id = $source['id'];
         
         // Log start
-        $log_id = $this->log_scrape_start($source_id, $url);
+        $log_id = whp_log_action('scrape_start', "Started scraping: {$url}", 'info', $source_id);
         
         try {
             // Fetch the main page
@@ -113,6 +114,7 @@ class WHP_Scraper {
             return $urls;
         }
         
+        // Use libxml
         libxml_use_internal_errors(true);
         $dom = new DOMDocument();
         @$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
@@ -132,6 +134,10 @@ class WHP_Scraper {
         foreach ($patterns as $pattern) {
             $nodes = $xpath->query($pattern);
             
+            if ($nodes === false) {
+                continue;
+            }
+            
             foreach ($nodes as $node) {
                 $href = $node->getAttribute('href');
                 
@@ -139,9 +145,9 @@ class WHP_Scraper {
                     continue;
                 }
                 
-                $full_url = $this->make_absolute_url($href, $base_url);
+                $full_url = whp_make_absolute_url($href, $base_url);
                 
-                if ($this->is_valid_post_url($full_url, $base_url)) {
+                if (whp_is_valid_post_url($full_url, $base_url)) {
                     $urls[] = $full_url;
                 }
             }
@@ -151,66 +157,6 @@ class WHP_Scraper {
         $urls = array_unique($urls);
         
         return $urls;
-    }
-    
-    private function make_absolute_url($url, $base) {
-        if (filter_var($url, FILTER_VALIDATE_URL)) {
-            return $url;
-        }
-        
-        $parsed_base = parse_url($base);
-        $scheme = $parsed_base['scheme'] ?? 'https';
-        $host = $parsed_base['host'] ?? '';
-        
-        if (strpos($url, '//') === 0) {
-            return $scheme . ':' . $url;
-        }
-        
-        if (strpos($url, '/') === 0) {
-            return $scheme . '://' . $host . $url;
-        }
-        
-        $path = $parsed_base['path'] ?? '';
-        $dir = dirname($path === '/' ? '' : $path);
-        return $scheme . '://' . $host . $dir . '/' . ltrim($url, '/');
-    }
-    
-    private function is_valid_post_url($url, $base_url) {
-        // Skip invalid URLs
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            return false;
-        }
-        
-        // Skip common non-post URLs
-        $exclude_patterns = array(
-            '/wp-admin',
-            '/wp-login',
-            '/feed',
-            '/search',
-            '/tag/',
-            '/category/',
-            '/author/',
-            '/page/',
-            '.pdf',
-            '.jpg',
-            '.png',
-            '.gif',
-            '.zip',
-            '.rar',
-            '#'
-        );
-        
-        foreach ($exclude_patterns as $pattern) {
-            if (strpos($url, $pattern) !== false) {
-                return false;
-            }
-        }
-        
-        // Ensure same domain
-        $base_domain = parse_url($base_url, PHP_URL_HOST);
-        $url_domain = parse_url($url, PHP_URL_HOST);
-        
-        return $base_domain === $url_domain;
     }
     
     private function is_duplicate($url) {
@@ -248,7 +194,7 @@ class WHP_Scraper {
         }
         
         // AI Rewriting
-        if ($source['rewrite_enabled']) {
+        if (!empty($source['rewrite_enabled'])) {
             $ai_handler = new WHP_AI_Handler();
             $rewritten = $ai_handler->rewrite_content($post_data['content']);
             
@@ -267,7 +213,7 @@ class WHP_Scraper {
             update_post_meta($post_id, '_whp_scraped_date', current_time('mysql'));
             
             // Log success
-            $this->log_post_created($source['id'], $post_id, $post_data['title']);
+            whp_log_action('post_created', "Created post: {$post_data['title']}", 'success', $source['id'], $post_id);
         }
         
         return $post_id;
@@ -300,7 +246,7 @@ class WHP_Scraper {
         if (empty($title)) {
             $xpath = new DOMXPath($dom);
             $og_title = $xpath->query('//meta[@property="og:title"]/@content');
-            if ($og_title->length > 0) {
+            if ($og_title && $og_title->length > 0) {
                 $title = $og_title->item(0)->nodeValue;
             }
         }
@@ -337,7 +283,7 @@ class WHP_Scraper {
         
         foreach ($content_selectors as $selector) {
             $nodes = $xpath->query($selector);
-            if ($nodes->length > 0) {
+            if ($nodes && $nodes->length > 0) {
                 $content = $this->dom_to_html($nodes->item(0));
                 if (strlen(strip_tags($content)) > 100) {
                     return $content;
@@ -356,6 +302,11 @@ class WHP_Scraper {
     
     private function dom_to_html($node) {
         $html = '';
+        
+        if (!$node) {
+            return $html;
+        }
+        
         $children = $node->childNodes;
         
         foreach ($children as $child) {
@@ -390,7 +341,7 @@ class WHP_Scraper {
                 continue;
             }
             
-            $full_src = $this->make_absolute_url($src, $base_url);
+            $full_src = whp_make_absolute_url($src, $base_url);
             
             $images[] = array(
                 'src' => $full_src,
@@ -403,7 +354,7 @@ class WHP_Scraper {
     }
     
     private function create_post($post_data, $source) {
-        $post_status = $source['auto_publish'] ? 'publish' : 'draft';
+        $post_status = !empty($source['auto_publish']) ? 'publish' : 'draft';
         $author_id = !empty($source['author_id']) ? $source['author_id'] : get_current_user_id();
         
         $post_args = array(
@@ -438,29 +389,11 @@ class WHP_Scraper {
     }
     
     private function set_featured_image($post_id, $image_url) {
-        $image_handler = new WHP_Image_Handler();
-        $attachment_id = $image_handler->download_image($image_url);
+        $attachment_id = $this->image_handler->download_image($image_url);
         
         if ($attachment_id && !is_wp_error($attachment_id)) {
             set_post_thumbnail($post_id, $attachment_id);
         }
-    }
-    
-    private function log_scrape_start($source_id, $url) {
-        global $wpdb;
-        
-        $wpdb->insert(
-            $wpdb->prefix . 'whp_logs',
-            array(
-                'source_id' => $source_id,
-                'type' => 'scrape_start',
-                'message' => "Started scraping: {$url}",
-                'status' => 'info',
-                'created_at' => current_time('mysql')
-            )
-        );
-        
-        return $wpdb->insert_id;
     }
     
     private function update_log($log_id, $status, $message) {
@@ -473,22 +406,6 @@ class WHP_Scraper {
                 'message' => $message
             ),
             array('id' => $log_id)
-        );
-    }
-    
-    private function log_post_created($source_id, $post_id, $title) {
-        global $wpdb;
-        
-        $wpdb->insert(
-            $wpdb->prefix . 'whp_logs',
-            array(
-                'source_id' => $source_id,
-                'post_id' => $post_id,
-                'type' => 'post_created',
-                'message' => "Created post: {$title}",
-                'status' => 'success',
-                'created_at' => current_time('mysql')
-            )
         );
     }
 }

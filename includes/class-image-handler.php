@@ -1,5 +1,8 @@
 <?php
-if (!defined('ABSPATH')) exit;
+// Prevent direct access
+if (!defined('ABSPATH')) {
+    exit;
+}
 
 class WHP_Image_Handler {
     
@@ -29,7 +32,7 @@ class WHP_Image_Handler {
                 continue;
             }
             
-            $full_url = $this->make_absolute_url($src, $base_url);
+            $full_url = whp_make_absolute_url($src, $base_url);
             $attachment_id = $this->download_image($full_url);
             
             if ($attachment_id && !is_wp_error($attachment_id)) {
@@ -60,7 +63,7 @@ class WHP_Image_Handler {
                 continue;
             }
             
-            $full_url = $this->make_absolute_url($src, $base_url);
+            $full_url = whp_make_absolute_url($src, $base_url);
             $content = str_replace($src, $full_url, $content);
         }
         
@@ -116,27 +119,5 @@ class WHP_Image_Handler {
         ));
         
         return $attachment_id ? (int) $attachment_id : false;
-    }
-    
-    private function make_absolute_url($url, $base) {
-        if (filter_var($url, FILTER_VALIDATE_URL)) {
-            return $url;
-        }
-        
-        $parsed_base = parse_url($base);
-        $scheme = $parsed_base['scheme'] ?? 'https';
-        $host = $parsed_base['host'] ?? '';
-        
-        if (strpos($url, '//') === 0) {
-            return $scheme . ':' . $url;
-        }
-        
-        if (strpos($url, '/') === 0) {
-            return $scheme . '://' . $host . $url;
-        }
-        
-        $path = $parsed_base['path'] ?? '';
-        $dir = dirname($path === '/' ? '' : $path);
-        return $scheme . '://' . $host . $dir . '/' . ltrim($url, '/');
     }
 }

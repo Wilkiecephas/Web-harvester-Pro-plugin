@@ -1,5 +1,8 @@
 <?php
-if (!defined('ABSPATH')) exit;
+// Prevent direct access
+if (!defined('ABSPATH')) {
+    exit;
+}
 
 class WHP_AI_Handler {
     

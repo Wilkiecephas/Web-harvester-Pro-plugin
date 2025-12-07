@@ -2,41 +2,54 @@
 <div class="wrap webharvest-pro">
     <h1><?php esc_html_e('WebHarvest Pro Dashboard', 'webharvest-pro'); ?></h1>
     
-    <div class="stats-grid">
-        <div class="card">
+    <div class="whp-stats-grid">
+        <div class="whp-stat-card">
             <h3><?php esc_html_e('Total Sources', 'webharvest-pro'); ?></h3>
-            <div class="stat-number"><?php echo count(get_option('whp_sources', [])); ?></div>
-        </div>
-        
-        <div class="card">
-            <h3><?php esc_html_e('Imported Posts', 'webharvest-pro'); ?></h3>
-            <div class="stat-number">
-                <?php
-                $count = wp_count_posts();
-                echo $count->publish + $count->draft + $count->pending;
+            <div class="whp-stat-number">
+                <?php 
+                $sources = get_option('whp_sources', array());
+                echo count($sources);
                 ?>
             </div>
         </div>
         
-        <div class="card">
-            <h3><?php esc_html_e('Last Scrape', 'webharvest-pro'); ?></h3>
-            <div class="stat-number">
+        <div class="whp-stat-card">
+            <h3><?php esc_html_e('Active Sources', 'webharvest-pro'); ?></h3>
+            <div class="whp-stat-number">
                 <?php
-                $last_scrape = get_option('whp_last_scrape');
-                echo $last_scrape ? human_time_diff(strtotime($last_scrape)) . ' ago' : 'Never';
+                $active = 0;
+                foreach ($sources as $source) {
+                    if ($source['status'] === 'active') {
+                        $active++;
+                    }
+                }
+                echo $active;
+                ?>
+            </div>
+        </div>
+        
+        <div class="whp-stat-card">
+            <h3><?php esc_html_e('Imported Posts', 'webharvest-pro'); ?></h3>
+            <div class="whp-stat-number">
+                <?php
+                global $wpdb;
+                $count = $wpdb->get_var(
+                    "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_whp_source_url'"
+                );
+                echo $count ?: 0;
                 ?>
             </div>
         </div>
     </div>
     
-    <div class="card">
+    <div class="whp-quick-actions">
         <h2><?php esc_html_e('Quick Actions', 'webharvest-pro'); ?></h2>
         <p>
             <button id="whp-quick-scrape" class="button button-primary">
                 <?php esc_html_e('Quick Scrape', 'webharvest-pro'); ?>
             </button>
-            <a href="<?php echo admin_url('admin.php?page=webharvest-pro-sources'); ?>" class="button">
-                <?php esc_html_e('Manage Sources', 'webharvest-pro'); ?>
+            <a href="<?php echo admin_url('admin.php?page=webharvest-pro-sources&action=add'); ?>" class="button">
+                <?php esc_html_e('Add New Source', 'webharvest-pro'); ?>
             </a>
             <a href="<?php echo admin_url('admin.php?page=webharvest-pro-settings'); ?>" class="button">
                 <?php esc_html_e('Settings', 'webharvest-pro'); ?>
@@ -44,31 +57,72 @@
         </p>
     </div>
     
-    <div class="card">
+    <div class="whp-recent-activity">
         <h2><?php esc_html_e('Recent Activity', 'webharvest-pro'); ?></h2>
-        <div id="whp-recent-logs">
-            <?php
-            global $wpdb;
-            $logs = $wpdb->get_results(
-                "SELECT * FROM {$wpdb->prefix}whp_logs ORDER BY created_at DESC LIMIT 10"
-            );
+        <?php
+        global $wpdb;
+        $logs = $wpdb->get_results(
+            "SELECT * FROM {$wpdb->prefix}whp_logs 
+             ORDER BY created_at DESC 
+             LIMIT 10"
+        );
+        
+        if ($logs) {
+            echo '<table class="widefat fixed">';
+            echo '<thead><tr>
+                <th>' . __('Type', 'webharvest-pro') . '</th>
+                <th>' . __('Message', 'webharvest-pro') . '</th>
+                <th>' . __('Status', 'webharvest-pro') . '</th>
+                <th>' . __('Time', 'webharvest-pro') . '</th>
+            </tr></thead>';
+            echo '<tbody>';
             
-            if ($logs) {
-                echo '<table class="widefat">';
-                foreach ($logs as $log) {
-                    echo '<tr class="log-item log-' . esc_attr($log->status) . '">';
-                    echo '<td>' . esc_html($log->type) . '</td>';
-                    echo '<td>' . esc_html($log->message) . '</td>';
-                    echo '<td>' . esc_html(human_time_diff(strtotime($log->created_at))) . ' ago</td>';
-                    echo '</tr>';
-                }
-                echo '</table>';
-            } else {
-                echo '<p>' . esc_html__('No recent activity', 'webharvest-pro') . '</p>';
+            foreach ($logs as $log) {
+                echo '<tr class="whp-log-' . esc_attr($log->status) . '">';
+                echo '<td>' . esc_html($log->type) . '</td>';
+                echo '<td>' . esc_html($log->message) . '</td>';
+                echo '<td><span class="whp-status-badge whp-status-' . esc_attr($log->status) . '">' 
+                     . esc_html($log->status) . '</span></td>';
+                echo '<td>' . esc_html(human_time_diff(strtotime($log->created_at))) . ' ' . __('ago', 'webharvest-pro') . '</td>';
+                echo '</tr>';
             }
-            ?>
-        </div>
+            
+            echo '</tbody></table>';
+        } else {
+            echo '<p>' . esc_html__('No recent activity', 'webharvest-pro') . '</p>';
+        }
+        ?>
     </div>
-    
-    <div id="whp-test-results" style="display: none;"></div>
 </div>
+
+<script>
+jQuery(document).ready(function($) {
+    $('#whp-quick-scrape').on('click', function() {
+        var url = prompt('<?php esc_html_e('Enter URL to scrape:', 'webharvest-pro'); ?>');
+        if (url) {
+            $.ajax({
+                url: whp_ajax.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'whp_test_scrape',
+                    url: url,
+                    nonce: whp_ajax.nonce
+                },
+                beforeSend: function() {
+                    $('#whp-quick-scrape').prop('disabled', true).text(whp_ajax.strings.processing);
+                },
+                success: function(response) {
+                    if (response.success) {
+                        alert('<?php esc_html_e('Found', 'webharvest-pro'); ?> ' + response.data.count + ' <?php esc_html_e('potential posts', 'webharvest-pro'); ?>');
+                    } else {
+                        alert('<?php esc_html_e('Error:', 'webharvest-pro'); ?> ' + response.data);
+                    }
+                },
+                complete: function() {
+                    $('#whp-quick-scrape').prop('disabled', false).text('<?php esc_html_e('Quick Scrape', 'webharvest-pro'); ?>');
+                }
+            });
+        }
+    });
+});
+</script>

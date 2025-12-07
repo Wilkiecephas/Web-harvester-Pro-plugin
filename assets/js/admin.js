@@ -21,14 +21,6 @@
             
             // Test scrape
             $('.whp-test-scrape').on('click', this.testScrape.bind(this));
-            
-            // Quick scrape button
-            $('#whp-quick-scrape').on('click', function() {
-                var url = prompt('Enter URL to scrape:');
-                if (url) {
-                    WHPAdmin.quickScrape(url);
-                }
-            });
         },
         
         addSource: function(e) {
@@ -191,32 +183,7 @@
                     }
                 },
                 complete: function() {
-                    button.prop('disabled', false).text('Test Scrape');
-                }
-            });
-        },
-        
-        quickScrape: function(url) {
-            $.ajax({
-                url: whp_ajax.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'whp_test_scrape',
-                    url: url,
-                    nonce: whp_ajax.nonce
-                },
-                beforeSend: function() {
-                    $('#whp-quick-scrape').prop('disabled', true).text('Scraping...');
-                },
-                success: function(response) {
-                    if (response.success) {
-                        alert('Found ' + response.data.count + ' potential posts');
-                    } else {
-                        alert('Error: ' + response.data);
-                    }
-                },
-                complete: function() {
-                    $('#whp-quick-scrape').prop('disabled', false).text('Quick Scrape');
+                    button.prop('disabled', false).text('Test');
                 }
             });
         }

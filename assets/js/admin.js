@@ -1,7 +1,7 @@
 (function($) {
     'use strict';
     
-    const WHP = {
+    const WHPAdmin = {
         init: function() {
             this.bindEvents();
         },
@@ -10,23 +10,32 @@
             // Add source form
             $('#whp-add-source-form').on('submit', this.addSource.bind(this));
             
-            // Test scrape
-            $('.whp-test-scrape').on('click', this.testScrape.bind(this));
-            
             // Delete source
             $('.whp-delete-source').on('click', this.deleteSource.bind(this));
             
-            // Toggle source
+            // Toggle source status
             $('.whp-toggle-source').on('click', this.toggleSource.bind(this));
             
-            // Quick scrape
-            $('.whp-quick-scrape').on('click', this.quickScrape.bind(this));
+            // Run scrape
+            $('.whp-run-scrape').on('click', this.runScrape.bind(this));
+            
+            // Test scrape
+            $('.whp-test-scrape').on('click', this.testScrape.bind(this));
+            
+            // Quick scrape button
+            $('#whp-quick-scrape').on('click', function() {
+                var url = prompt('Enter URL to scrape:');
+                if (url) {
+                    WHPAdmin.quickScrape(url);
+                }
+            });
         },
         
         addSource: function(e) {
             e.preventDefault();
             
             const form = $(e.target);
+            const button = form.find('button[type="submit"]');
             const data = form.serialize();
             
             $.ajax({
@@ -34,66 +43,20 @@
                 type: 'POST',
                 data: data + '&action=whp_add_source&nonce=' + whp_ajax.nonce,
                 beforeSend: function() {
-                    form.find('button[type="submit"]').prop('disabled', true).text('Adding...');
+                    button.prop('disabled', true).text(whp_ajax.strings.processing);
                 },
                 success: function(response) {
                     if (response.success) {
-                        window.location.reload();
-                    } else {
                         alert(response.data);
-                    }
-                },
-                complete: function() {
-                    form.find('button[type="submit"]').prop('disabled', false).text('Add Source');
-                }
-            });
-        },
-        
-        testScrape: function(e) {
-            e.preventDefault();
-            
-            const button = $(e.target);
-            const sourceId = button.data('source-id');
-            
-            if (!confirm('Test scraping will fetch URLs without importing. Continue?')) {
-                return;
-            }
-            
-            $.ajax({
-                url: whp_ajax.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'whp_test_scrape',
-                    source_id: sourceId,
-                    nonce: whp_ajax.nonce
-                },
-                beforeSend: function() {
-                    button.prop('disabled', true).text('Testing...');
-                },
-                success: function(response) {
-                    if (response.success) {
-                        alert('Found ' + response.data.count + ' potential posts');
-                        if (response.data.urls && response.data.urls.length) {
-                            WHP.showTestResults(response.data.urls);
-                        }
+                        window.location.reload();
                     } else {
                         alert('Error: ' + response.data);
                     }
                 },
                 complete: function() {
-                    button.prop('disabled', false).text('Test Scrape');
+                    button.prop('disabled', false).text('Add Source');
                 }
             });
-        },
-        
-        showTestResults: function(urls) {
-            let html = '<h3>Found URLs:</h3><ul>';
-            urls.forEach(function(url) {
-                html += '<li><a href="' + url + '" target="_blank">' + url + '</a></li>';
-            });
-            html += '</ul>';
-            
-            $('#whp-test-results').html(html).show();
         },
         
         deleteSource: function(e) {
@@ -119,7 +82,9 @@
                 },
                 success: function(response) {
                     if (response.success) {
-                        button.closest('tr').fadeOut();
+                        button.closest('tr').fadeOut(400, function() {
+                            $(this).remove();
+                        });
                     } else {
                         alert('Error: ' + response.data);
                     }
@@ -127,17 +92,116 @@
             });
         },
         
-        quickScrape: function(e) {
+        toggleSource: function(e) {
             e.preventDefault();
             
-            const url = prompt('Enter URL to scrape:');
-            if (!url) return;
+            const button = $(e.target);
+            const sourceId = button.data('source-id');
+            const currentStatus = button.data('status');
+            const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
             
             $.ajax({
                 url: whp_ajax.ajax_url,
                 type: 'POST',
                 data: {
-                    action: 'whp_quick_scrape',
+                    action: 'whp_toggle_source',
+                    source_id: sourceId,
+                    status: newStatus,
+                    nonce: whp_ajax.nonce
+                },
+                beforeSend: function() {
+                    button.prop('disabled', true);
+                },
+                success: function(response) {
+                    if (response.success) {
+                        button.data('status', newStatus);
+                        button.text(newStatus === 'active' ? 'Deactivate' : 'Activate');
+                        
+                        // Update status badge
+                        const badge = button.closest('tr').find('.whp-source-status');
+                        badge.removeClass('whp-source-active whp-source-inactive')
+                             .addClass('whp-source-' + newStatus)
+                             .text(newStatus);
+                    } else {
+                        alert('Error: ' + response.data);
+                    }
+                },
+                complete: function() {
+                    button.prop('disabled', false);
+                }
+            });
+        },
+        
+        runScrape: function(e) {
+            e.preventDefault();
+            
+            const button = $(e.target);
+            const sourceId = button.data('source-id');
+            
+            if (!confirm('Start scraping this source now?')) {
+                return;
+            }
+            
+            $.ajax({
+                url: whp_ajax.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'whp_run_scrape',
+                    source_id: sourceId,
+                    nonce: whp_ajax.nonce
+                },
+                beforeSend: function() {
+                    button.prop('disabled', true).text(whp_ajax.strings.scraping);
+                },
+                success: function(response) {
+                    if (response.success) {
+                        alert(response.data);
+                    } else {
+                        alert('Error: ' + response.data);
+                    }
+                },
+                complete: function() {
+                    button.prop('disabled', false).text('Scrape Now');
+                }
+            });
+        },
+        
+        testScrape: function(e) {
+            e.preventDefault();
+            
+            const button = $(e.target);
+            const sourceId = button.data('source-id');
+            
+            $.ajax({
+                url: whp_ajax.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'whp_test_scrape',
+                    source_id: sourceId,
+                    nonce: whp_ajax.nonce
+                },
+                beforeSend: function() {
+                    button.prop('disabled', true).text('Testing...');
+                },
+                success: function(response) {
+                    if (response.success) {
+                        alert('Found ' + response.data.count + ' potential posts');
+                    } else {
+                        alert('Error: ' + response.data);
+                    }
+                },
+                complete: function() {
+                    button.prop('disabled', false).text('Test Scrape');
+                }
+            });
+        },
+        
+        quickScrape: function(url) {
+            $.ajax({
+                url: whp_ajax.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'whp_test_scrape',
                     url: url,
                     nonce: whp_ajax.nonce
                 },
@@ -146,7 +210,7 @@
                 },
                 success: function(response) {
                     if (response.success) {
-                        alert('Scraping started! Check logs for details.');
+                        alert('Found ' + response.data.count + ' potential posts');
                     } else {
                         alert('Error: ' + response.data);
                     }
@@ -159,7 +223,7 @@
     };
     
     $(document).ready(function() {
-        WHP.init();
+        WHPAdmin.init();
     });
     
 })(jQuery);

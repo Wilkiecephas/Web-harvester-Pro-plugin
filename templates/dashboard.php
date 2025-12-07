@@ -1,5 +1,5 @@
 <?php if (!defined('ABSPATH')) exit; ?>
-<div class="wrap webharvest-pro">
+<div class="wrap whp-admin">
     <h1><?php esc_html_e('WebHarvest Pro Dashboard', 'webharvest-pro'); ?></h1>
     
     <div class="whp-stats-grid">
@@ -16,28 +16,14 @@
         <div class="whp-stat-card">
             <h3><?php esc_html_e('Active Sources', 'webharvest-pro'); ?></h3>
             <div class="whp-stat-number">
-                <?php
-                $active = 0;
-                foreach ($sources as $source) {
-                    if ($source['status'] === 'active') {
-                        $active++;
-                    }
-                }
-                echo $active;
-                ?>
+                <?php echo whp_get_active_sources_count(); ?>
             </div>
         </div>
         
         <div class="whp-stat-card">
             <h3><?php esc_html_e('Imported Posts', 'webharvest-pro'); ?></h3>
             <div class="whp-stat-number">
-                <?php
-                global $wpdb;
-                $count = $wpdb->get_var(
-                    "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_whp_source_url'"
-                );
-                echo $count ?: 0;
-                ?>
+                <?php echo whp_get_total_imported_posts(); ?>
             </div>
         </div>
     </div>
@@ -48,8 +34,8 @@
             <button id="whp-quick-scrape" class="button button-primary">
                 <?php esc_html_e('Quick Scrape', 'webharvest-pro'); ?>
             </button>
-            <a href="<?php echo admin_url('admin.php?page=webharvest-pro-sources&action=add'); ?>" class="button">
-                <?php esc_html_e('Add New Source', 'webharvest-pro'); ?>
+            <a href="<?php echo admin_url('admin.php?page=webharvest-pro-sources'); ?>" class="button">
+                <?php esc_html_e('Manage Sources', 'webharvest-pro'); ?>
             </a>
             <a href="<?php echo admin_url('admin.php?page=webharvest-pro-settings'); ?>" class="button">
                 <?php esc_html_e('Settings', 'webharvest-pro'); ?>
@@ -60,12 +46,7 @@
     <div class="whp-recent-activity">
         <h2><?php esc_html_e('Recent Activity', 'webharvest-pro'); ?></h2>
         <?php
-        global $wpdb;
-        $logs = $wpdb->get_results(
-            "SELECT * FROM {$wpdb->prefix}whp_logs 
-             ORDER BY created_at DESC 
-             LIMIT 10"
-        );
+        $logs = whp_get_recent_logs(10);
         
         if ($logs) {
             echo '<table class="widefat fixed">';

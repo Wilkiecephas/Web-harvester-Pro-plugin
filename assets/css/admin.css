@@ -1,0 +1,110 @@
+.webharvest-pro {
+    margin: 20px 20px 0 0;
+}
+
+.webharvest-pro .card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.webharvest-pro .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.webharvest-pro .stat-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 20px;
+    text-align: center;
+}
+
+.webharvest-pro .stat-number {
+    font-size: 2em;
+    font-weight: bold;
+    color: #2271b1;
+    margin-bottom: 5px;
+}
+
+.webharvest-pro .stat-label {
+    color: #646970;
+    font-size: 0.9em;
+}
+
+.webharvest-pro .button-primary {
+    background: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+}
+
+.webharvest-pro .button-primary:hover {
+    background: #135e96;
+    border-color: #135e96;
+}
+
+.webharvest-pro .sources-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.webharvest-pro .sources-table th,
+.webharvest-pro .sources-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #ccd0d4;
+}
+
+.webharvest-pro .sources-table th {
+    background: #f6f7f7;
+    font-weight: 600;
+}
+
+.webharvest-pro .status-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    font-weight: 500;
+}
+
+.webharvest-pro .status-active {
+    background: #d1f7c4;
+    color: #0e6245;
+}
+
+.webharvest-pro .status-paused {
+    background: #ffd7d7;
+    color: #d63638;
+}
+
+.webharvest-pro .actions {
+    display: flex;
+    gap: 5px;
+}
+
+.webharvest-pro .log-item {
+    padding: 10px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.webharvest-pro .log-success {
+    border-left: 4px solid #46b450;
+}
+
+.webharvest-pro .log-error {
+    border-left: 4px solid #dc3232;
+}
+
+.webharvest-pro .log-warning {
+    border-left: 4px solid #ffb900;
+}
+
+.webharvest-pro .form-table th {
+    width: 200px;
+}

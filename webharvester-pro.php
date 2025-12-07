@@ -2,9 +2,10 @@
 /**
  * Plugin Name: WebHarvest Pro
  * Plugin URI: https://tekstep.ug
- * Description: Advanced web scraping tool for WordPress with AI rewriting and scheduling.
+ * Description: Advanced WordPress web scraper with AI rewriting and scheduling.
  * Version: 1.0.0
  * Author: Wilkie Cephas
+ * Author URI: https://tekstep.ug
  * License: GPL v2 or later
  * Text Domain: webharvest-pro
  */
@@ -14,27 +15,37 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// Define constants
+// Define plugin constants
 define('WHP_VERSION', '1.0.0');
 define('WHP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WHP_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('WHP_PLUGIN_FILE', __FILE__);
 
-// Include necessary files
+// Include required files
+require_once WHP_PLUGIN_DIR . 'includes/functions.php';
 require_once WHP_PLUGIN_DIR . 'includes/class-scraper.php';
 require_once WHP_PLUGIN_DIR . 'includes/class-ai-handler.php';
 require_once WHP_PLUGIN_DIR . 'includes/class-image-handler.php';
-require_once WHP_PLUGIN_DIR . 'includes/class-scheduler.php';
+
+// Initialize the plugin
+add_action('plugins_loaded', 'whp_init_plugin');
+
+function whp_init_plugin() {
+    // Load text domain
+    load_plugin_textdomain('webharvest-pro', false, dirname(plugin_basename(__FILE__)) . '/languages');
+    
+    // Initialize the main plugin class
+    if (class_exists('WebHarvest_Pro')) {
+        WebHarvest_Pro::get_instance();
+    }
+}
 
 /**
  * Main plugin class
  */
-class WebHarvest_Pro_Main {
+class WebHarvest_Pro {
     
     private static $instance = null;
-    private $scraper;
-    private $ai_handler;
-    private $scheduler;
     
     public static function get_instance() {
         if (null === self::$instance) {
@@ -45,7 +56,6 @@ class WebHarvest_Pro_Main {
     
     private function __construct() {
         $this->init_hooks();
-        $this->init_components();
     }
     
     private function init_hooks() {
@@ -53,8 +63,10 @@ class WebHarvest_Pro_Main {
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
         
-        // Admin hooks
+        // Admin menu
         add_action('admin_menu', array($this, 'add_admin_menu'));
+        
+        // Admin scripts
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
         
         // AJAX handlers
@@ -62,6 +74,7 @@ class WebHarvest_Pro_Main {
         add_action('wp_ajax_whp_delete_source', array($this, 'ajax_delete_source'));
         add_action('wp_ajax_whp_run_scrape', array($this, 'ajax_run_scrape'));
         add_action('wp_ajax_whp_test_scrape', array($this, 'ajax_test_scrape'));
+        add_action('wp_ajax_whp_toggle_source', array($this, 'ajax_toggle_source'));
         
         // Cron hooks
         add_action('whp_hourly_scrape', array($this, 'run_scheduled_scrapes'));
@@ -73,12 +86,9 @@ class WebHarvest_Pro_Main {
         
         // Settings
         add_action('admin_init', array($this, 'register_settings'));
-    }
-    
-    private function init_components() {
-        $this->scraper = new WHP_Scraper();
-        $this->ai_handler = new WHP_AI_Handler();
-        $this->scheduler = new WHP_Scheduler();
+        
+        // Initialize cron jobs
+        add_action('init', array($this, 'init_cron_jobs'));
     }
     
     public function activate() {
@@ -104,10 +114,26 @@ class WebHarvest_Pro_Main {
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
         
-        // Schedule initial cron
-        wp_schedule_event(time(), 'hourly', 'whp_hourly_scrape');
-        wp_schedule_event(time(), 'daily', 'whp_daily_scrape');
-        wp_schedule_event(time(), 'weekly', 'whp_weekly_scrape');
+        // Set default options
+        if (false === get_option('whp_sources')) {
+            add_option('whp_sources', array());
+        }
+        
+        if (false === get_option('whp_openai_key')) {
+            add_option('whp_openai_key', '');
+        }
+        
+        if (false === get_option('whp_default_author')) {
+            add_option('whp_default_author', get_current_user_id());
+        }
+        
+        if (false === get_option('whp_default_status')) {
+            add_option('whp_default_status', 'draft');
+        }
+        
+        if (false === get_option('whp_image_handling')) {
+            add_option('whp_image_handling', 'download');
+        }
     }
     
     public function deactivate() {
@@ -115,22 +141,6 @@ class WebHarvest_Pro_Main {
         wp_clear_scheduled_hook('whp_hourly_scrape');
         wp_clear_scheduled_hook('whp_daily_scrape');
         wp_clear_scheduled_hook('whp_weekly_scrape');
-    }
-    
-    public function add_cron_schedules($schedules) {
-        $schedules['whp_30min'] = array(
-            'interval' => 30 * 60,
-            'display' => __('Every 30 Minutes', 'webharvest-pro')
-        );
-        $schedules['whp_2hours'] = array(
-            'interval' => 2 * 60 * 60,
-            'display' => __('Every 2 Hours', 'webharvest-pro')
-        );
-        $schedules['whp_6hours'] = array(
-            'interval' => 6 * 60 * 60,
-            'display' => __('Every 6 Hours', 'webharvest-pro')
-        );
-        return $schedules;
     }
     
     public function add_admin_menu() {
@@ -177,10 +187,10 @@ class WebHarvest_Pro_Main {
             return;
         }
         
-        wp_enqueue_style('webharvest-pro-admin', WHP_PLUGIN_URL . 'assets/css/admin.css', array(), WHP_VERSION);
-        wp_enqueue_script('webharvest-pro-admin', WHP_PLUGIN_URL . 'assets/js/admin.js', array('jquery'), WHP_VERSION, true);
+        wp_enqueue_style('whp-admin', WHP_PLUGIN_URL . 'assets/css/admin.css', array(), WHP_VERSION);
+        wp_enqueue_script('whp-admin', WHP_PLUGIN_URL . 'assets/js/admin.js', array('jquery'), WHP_VERSION, true);
         
-        wp_localize_script('webharvest-pro-admin', 'whp_ajax', array(
+        wp_localize_script('whp-admin', 'whp_ajax', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('whp_ajax_nonce'),
             'strings' => array(
@@ -191,10 +201,48 @@ class WebHarvest_Pro_Main {
         ));
     }
     
+    public function add_cron_schedules($schedules) {
+        if (!isset($schedules['whp_30min'])) {
+            $schedules['whp_30min'] = array(
+                'interval' => 30 * 60,
+                'display' => __('Every 30 Minutes', 'webharvest-pro')
+            );
+        }
+        
+        if (!isset($schedules['whp_2hours'])) {
+            $schedules['whp_2hours'] = array(
+                'interval' => 2 * 60 * 60,
+                'display' => __('Every 2 Hours', 'webharvest-pro')
+            );
+        }
+        
+        if (!isset($schedules['whp_6hours'])) {
+            $schedules['whp_6hours'] = array(
+                'interval' => 6 * 60 * 60,
+                'display' => __('Every 6 Hours', 'webharvest-pro')
+            );
+        }
+        
+        return $schedules;
+    }
+    
+    public function init_cron_jobs() {
+        if (!wp_next_scheduled('whp_hourly_scrape')) {
+            wp_schedule_event(time(), 'hourly', 'whp_hourly_scrape');
+        }
+        
+        if (!wp_next_scheduled('whp_daily_scrape')) {
+            wp_schedule_event(time(), 'daily', 'whp_daily_scrape');
+        }
+        
+        if (!wp_next_scheduled('whp_weekly_scrape')) {
+            wp_schedule_event(time(), 'weekly', 'whp_weekly_scrape');
+        }
+    }
+    
     public function register_settings() {
         register_setting('whp_settings', 'whp_openai_key');
         register_setting('whp_settings', 'whp_default_author');
-        register_setting('whp_settings', 'whp_default_category');
         register_setting('whp_settings', 'whp_default_status');
         register_setting('whp_settings', 'whp_image_handling');
         register_setting('whp_settings', 'whp_user_agent');
@@ -241,7 +289,7 @@ class WebHarvest_Pro_Main {
         update_option('whp_sources', $sources);
         
         // Log the action
-        $this->log_action('source_added', "Added source: {$source_url}");
+        whp_log_action('source_added', "Added source: {$source_url}");
         
         wp_send_json_success(__('Source added successfully!', 'webharvest-pro'));
     }
@@ -266,8 +314,35 @@ class WebHarvest_Pro_Main {
             unset($sources[$source_id]);
             update_option('whp_sources', $sources);
             
-            $this->log_action('source_deleted', "Deleted source: {$url}");
+            whp_log_action('source_deleted', "Deleted source: {$url}");
             wp_send_json_success(__('Source deleted successfully!', 'webharvest-pro'));
+        } else {
+            wp_send_json_error(__('Source not found', 'webharvest-pro'));
+        }
+    }
+    
+    public function ajax_toggle_source() {
+        check_ajax_referer('whp_ajax_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+        
+        $source_id = sanitize_text_field($_POST['source_id'] ?? '');
+        $status = sanitize_text_field($_POST['status'] ?? 'active');
+        
+        if (empty($source_id)) {
+            wp_send_json_error(__('Invalid source ID', 'webharvest-pro'));
+        }
+        
+        $sources = get_option('whp_sources', array());
+        
+        if (isset($sources[$source_id])) {
+            $sources[$source_id]['status'] = $status;
+            update_option('whp_sources', $sources);
+            
+            whp_log_action('source_updated', "Updated source status to: {$status}");
+            wp_send_json_success(__('Source updated successfully!', 'webharvest-pro'));
         } else {
             wp_send_json_error(__('Source not found', 'webharvest-pro'));
         }
@@ -289,12 +364,19 @@ class WebHarvest_Pro_Main {
         
         $source = $sources[$source_id];
         
-        // Run scrape in background
-        wp_schedule_single_event(time() + 2, 'whp_run_single_scrape', array($source));
+        // Run scrape immediately
+        $scraper = new WHP_Scraper();
+        $result = $scraper->scrape_source($source);
         
-        $this->log_action('scrape_started', "Started scraping: {$source['url']}");
-        
-        wp_send_json_success(__('Scraping started in background. Check logs for progress.', 'webharvest-pro'));
+        if ($result !== false) {
+            // Update last scraped time
+            $sources[$source_id]['last_scraped'] = current_time('mysql');
+            update_option('whp_sources', $sources);
+            
+            wp_send_json_success(sprintf(__('Scraping completed! %d posts processed.', 'webharvest-pro'), $result));
+        } else {
+            wp_send_json_error(__('Scraping failed. Check logs for details.', 'webharvest-pro'));
+        }
     }
     
     public function ajax_test_scrape() {
@@ -310,7 +392,8 @@ class WebHarvest_Pro_Main {
             wp_send_json_error(__('Please enter a URL', 'webharvest-pro'));
         }
         
-        $test_results = $this->scraper->test_scrape($url);
+        $scraper = new WHP_Scraper();
+        $test_results = $scraper->test_scrape($url);
         
         if (is_wp_error($test_results)) {
             wp_send_json_error($test_results->get_error_message());
@@ -326,6 +409,7 @@ class WebHarvest_Pro_Main {
     public function run_scheduled_scrapes() {
         $sources = get_option('whp_sources', array());
         $current_time = current_time('mysql');
+        $scraper = new WHP_Scraper();
         
         foreach ($sources as $source_id => $source) {
             if ($source['status'] !== 'active' || $source['frequency'] === 'manual') {
@@ -358,29 +442,15 @@ class WebHarvest_Pro_Main {
             }
             
             if ($should_scrape) {
-                $this->scraper->scrape_source($source);
+                $result = $scraper->scrape_source($source);
                 
-                // Update last scraped time
-                $sources[$source_id]['last_scraped'] = $current_time;
-                update_option('whp_sources', $sources);
+                if ($result !== false) {
+                    // Update last scraped time
+                    $sources[$source_id]['last_scraped'] = $current_time;
+                    update_option('whp_sources', $sources);
+                }
             }
         }
-    }
-    
-    private function log_action($type, $message, $status = 'info', $source_id = null, $post_id = null) {
-        global $wpdb;
-        
-        $wpdb->insert(
-            $wpdb->prefix . 'whp_logs',
-            array(
-                'source_id' => $source_id,
-                'post_id' => $post_id,
-                'type' => $type,
-                'message' => $message,
-                'status' => $status,
-                'created_at' => current_time('mysql')
-            )
-        );
     }
     
     // Render Methods
@@ -400,15 +470,3 @@ class WebHarvest_Pro_Main {
         include WHP_PLUGIN_DIR . 'templates/settings.php';
     }
 }
-
-// Initialize the plugin
-function webharvest_pro_init() {
-    return WebHarvest_Pro_Main::get_instance();
-}
-add_action('plugins_loaded', 'webharvest_pro_init');
-
-// Add action for single scrape
-add_action('whp_run_single_scrape', function($source) {
-    $plugin = WebHarvest_Pro_Main::get_instance();
-    // We'll need to make scraper public or create a method
-});

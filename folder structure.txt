@@ -1,0 +1,19 @@
+webharvest-pro/
+├── webharvest-pro.php (main plugin file)
+├── includes/
+│   ├── functions.php
+│   ├── class-scraper.php
+│   ├── class-ai-handler.php
+│   └── class-image-handler.php
+├── templates/
+│   ├── dashboard.php
+│   ├── sources.php
+│   ├── logs.php
+│   └── settings.php
+├── assets/
+│   ├── css/
+│   │   └── admin.css
+│   └── js/
+│       └── admin.js
+└── languages/
+    └── (translation files)

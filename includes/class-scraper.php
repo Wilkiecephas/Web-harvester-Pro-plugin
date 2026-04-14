@@ -179,6 +179,49 @@ class WHP_Scraper {
         
         // Parse content
         $post_data = $this->parse_post_content($html, $url);
+
+        // Apply site template if available
+        $host = wp_parse_url($url, PHP_URL_HOST);
+        if ($host) {
+            $templates = get_option('whp_site_templates', array());
+            if (!empty($templates[$host])) {
+                $tpl = $templates[$host];
+
+                // If XPath provided, try extracting using those selectors
+                if (!empty($tpl['title_xpath']) || !empty($tpl['content_xpath'])) {
+                    libxml_use_internal_errors(true);
+                    $dom = new DOMDocument();
+                    @$dom->loadHTML(mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8'));
+                    $xpath = new DOMXPath($dom);
+
+                    if (!empty($tpl['title_xpath'])) {
+                        $nodes = $xpath->query($tpl['title_xpath']);
+                        if ($nodes && $nodes->length > 0) {
+                            $post_data['title'] = trim($nodes->item(0)->textContent);
+                        }
+                    }
+
+                    if (!empty($tpl['content_xpath'])) {
+                        $nodes = $xpath->query($tpl['content_xpath']);
+                        if ($nodes && $nodes->length > 0) {
+                            $html_content = '';
+                            foreach ($nodes->item(0)->childNodes as $child) {
+                                $html_content .= $dom->saveHTML($child);
+                            }
+                            $post_data['content'] = $html_content;
+                        }
+                    }
+                }
+
+                // Apply include flags
+                if (isset($tpl['include_title']) && !$tpl['include_title']) {
+                    $post_data['title'] = '';
+                }
+                if (isset($tpl['include_content']) && !$tpl['include_content']) {
+                    $post_data['content'] = '';
+                }
+            }
+        }
         
         if (empty($post_data['title'])) {
             return new WP_Error('no_title', 'No title found');
@@ -196,13 +239,31 @@ class WHP_Scraper {
         // AI Rewriting
         if (!empty($source['rewrite_enabled'])) {
             $ai_handler = new WHP_AI_Handler();
-            $rewritten = $ai_handler->rewrite_content($post_data['content']);
-            
-            if (!is_wp_error($rewritten)) {
+
+            // Determine per-template AI settings if present
+            $host = wp_parse_url($url, PHP_URL_HOST);
+            $templates = get_option('whp_site_templates', array());
+            $tpl = !empty($host) && !empty($templates[$host]) ? $templates[$host] : array();
+
+            $settings = array();
+            if (!empty($tpl['ai_enable'])) {
+                $settings['tone'] = $tpl['ai_tone'] ?? '';
+                $settings['model'] = $tpl['ai_model'] ?? '';
+            }
+
+            // Include OpenRouter override if global enabled
+            $settings['openrouter_enabled'] = get_option('whp_openrouter_enabled');
+            $settings['openrouter_api_key'] = get_option('whp_openrouter_api_key');
+
+            $rewritten = $ai_handler->rewrite_content($post_data['content'], $settings);
+
+            if (!is_wp_error($rewritten) && !empty($rewritten)) {
                 $post_data['content'] = $rewritten;
             }
         }
         
+        // Apply user-defined title/content filters (removals/replacements)
+        $post_data = $this->apply_user_filters($post_data, $source);
         // Create post
         $post_id = $this->create_post($post_data, $source);
         
@@ -214,6 +275,23 @@ class WHP_Scraper {
             
             // Log success
             whp_log_action('post_created', "Created post: {$post_data['title']}", 'success', $source['id'], $post_id);
+            // Run AI analyzer to produce suggestions and save as post meta
+            $ai_handler = new WHP_AI_Handler();
+            $templates = get_option('whp_site_templates', array());
+            $host = wp_parse_url($url, PHP_URL_HOST);
+            $tpl = !empty($host) && !empty($templates[$host]) ? $templates[$host] : array();
+
+            $settings = array();
+            if (!empty($tpl['ai_enable'])) {
+                $settings['model'] = $tpl['ai_model'] ?? '';
+            }
+            $settings['openrouter_enabled'] = get_option('whp_openrouter_enabled');
+            $settings['openrouter_api_key'] = get_option('whp_openrouter_api_key');
+
+            $suggestions = $ai_handler->analyze_content($post_data['content'], $settings);
+            if (!empty($suggestions) && is_array($suggestions)) {
+                update_post_meta($post_id, '_whp_ai_suggestions', $suggestions);
+            }
         }
         
         return $post_id;
@@ -386,6 +464,66 @@ class WHP_Scraper {
         }
         
         return $post_id;
+    }
+
+    /**
+     * Apply user-configured filters to title and content.
+     * Reads options `whp_title_replacements` and `whp_content_removals`.
+     * - `whp_title_replacements` should be an array of ['find' => '', 'replace' => '']
+     * - `whp_content_removals` should be array of strings or regex patterns to remove from content
+     */
+    private function apply_user_filters($post_data, $source) {
+        // Title replacements
+        $replacements = get_option('whp_title_replacements', array());
+
+        if (!empty($replacements) && is_array($replacements) && !empty($post_data['title'])) {
+            foreach ($replacements as $r) {
+                if (!is_array($r)) continue;
+                $find = isset($r['find']) ? $r['find'] : '';
+                $replace = isset($r['replace']) ? $r['replace'] : '';
+
+                if ($find === '') continue;
+
+                // If pattern looks like a regex (starts and ends with /), use preg_replace
+                if (strlen($find) > 2 && $find[0] === '/' && substr($find, -1) === '/') {
+                    $post_data['title'] = @preg_replace($find, $replace, $post_data['title']);
+                } else {
+                    $post_data['title'] = str_replace($find, $replace, $post_data['title']);
+                }
+            }
+            $post_data['title'] = sanitize_text_field($post_data['title']);
+        }
+
+        // Content removals/replacements
+        $content_rules = get_option('whp_content_rules', array());
+        // Support older option name for removals
+        if (empty($content_rules)) {
+            $removals = get_option('whp_content_removals', array());
+            foreach ($removals as $rm) {
+                $content_rules[] = array('find' => $rm, 'replace' => '');
+            }
+        }
+
+        if (!empty($content_rules) && is_array($content_rules) && !empty($post_data['content'])) {
+            foreach ($content_rules as $rule) {
+                if (!is_array($rule)) continue;
+                $find = isset($rule['find']) ? $rule['find'] : '';
+                $replace = isset($rule['replace']) ? $rule['replace'] : '';
+
+                if ($find === '') continue;
+
+                if (strlen($find) > 2 && $find[0] === '/' && substr($find, -1) === '/') {
+                    $post_data['content'] = @preg_replace($find, $replace, $post_data['content']);
+                } else {
+                    $post_data['content'] = str_replace($find, $replace, $post_data['content']);
+                }
+            }
+
+            // Clean up extra whitespace
+            $post_data['content'] = preg_replace('/\s+/', ' ', $post_data['content']);
+        }
+
+        return $post_data;
     }
     
     private function set_featured_image($post_id, $image_url) {

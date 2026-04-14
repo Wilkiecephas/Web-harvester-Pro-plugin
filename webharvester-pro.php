@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: WebHarvest Pro
- * Plugin URI: https://tekstep.ug
+ * Plugin URI: https://tekstepapps.org
  * Description: Advanced WordPress web scraper with AI rewriting and scheduling.
- * Version: 1.0.0
+ * Version: 1.2.0
  * Author: Wilkie Cephas
- * Author URI: https://tekstep.ug
+ * Author URI: https://tekstepapps.org
  * License: GPL v2 or later
  * Text Domain: webharvest-pro
  */
